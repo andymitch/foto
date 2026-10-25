@@ -34,12 +34,29 @@ so the UI never touches tokio directly.
 
 ## Decisions
 
-| Topic | Decision |
-|-------|----------|
-| Storage | Visible library folder, with no second copy of any file (see "Storage") |
-| Videos | Imported and synced alongside photos |
-| Libraries | Core supports N libraries from day one. The UI starts with one default library and shows a switcher once there are two |
-| Import | Watched folders: live file events, plus a full rescan at startup |
+| # | Topic | Decision |
+|---|-------|----------|
+| 1 | Platforms | Desktop: macOS first, Linux second. Mobile: **Android essential**, iOS wanted. Phones are the main photo source |
+| 2 | Storage | Visible library folder, with no second copy of any file (see "Storage") |
+| 3 | Formats | Photos (JPEG/PNG/WebP/GIF/TIFF/HEIC), RAW (embedded preview as thumbnail), videos (poster frame + duration). Motion Photos (Android) and Live Photos (iPhone) are paired into one item |
+| 4 | Deletes | A delete in foto removes the item on every device. Files go to the OS trash, never a permanent delete, and foto keeps a 30-day "Recently deleted" view |
+| 5 | Deletes on disk | A file deleted from a watched folder is deleted everywhere. A missing root (unplugged drive) never counts as a delete |
+| 6 | Edits | A changed file replaces the old asset: new hash, old one tombstoned |
+| 7 | Library folder layout | `<library>/YYYY/MM/<name>` by date taken. On a name clash, a short hash is appended |
+| 8 | Local files | Watched folders stay where they are. The library folder only holds files received from peers |
+| 9 | Sync scope | Per-device "originals: all / on demand" switch. Default is everything |
+| 10 | Disk full | Pause downloads and show a warning |
+| 11 | Sharing with others | In scope, using read-only tickets, with minimal UI |
+| 12 | Revoking a device | Future work: [#1](https://github.com/andymitch/foto/issues/1). MVP "remove device" is a soft action |
+| 13 | Background | Desktop: tray/menu bar, launch at login |
+| 14 | Video playback | Hand off to the system player |
+| 15 | Organisation | Timeline + favourites. Albums later |
+| 16 | Lightbox | Zoom/pan, arrow keys, info panel, reveal in Finder/file manager. No editing |
+| 17 | Signing | Unsigned builds |
+| 18 | Relays | n0 public relays |
+| 19 | Name | **Not final.** `foto` is the working name. Keep it in one place (crate names, app ID, folder name) so a rename is mechanical. Settle it before the first Android install, because changing `applicationId` later means reinstalling |
+| 20 | Libraries | Core supports N libraries. The UI starts with one and shows a switcher once there are two |
+| 21 | Import | Watched folders: live file events, plus a full rescan at startup |
 
 ## Storage
 
