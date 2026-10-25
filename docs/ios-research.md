@@ -1,6 +1,6 @@
 # iOS: platform capabilities for a P2P photo library
 
-Research done to see how native foto can be on iOS. Sources: Apple PhotoKit / BackgroundTasks
+Status: **deferred** (#2). Research done to see how native foto can be on iOS. Sources: Apple PhotoKit / BackgroundTasks
 documentation (fetched October 2026), and the iOS shells of Ente (`ente-io/ente`,
 `mobile/apps/photos/ios`) and Immich (`immich-app/immich`, `mobile/ios`).
 
