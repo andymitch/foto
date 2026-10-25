@@ -1,0 +1,13 @@
+[package]
+name = "foto-cli"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "foto"
+path = "src/main.rs"
+
+[dependencies]
+foto-core.workspace = true
+tracing-subscriber.workspace = true

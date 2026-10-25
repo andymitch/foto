@@ -64,6 +64,7 @@ pub struct Core {
     pub indexing: AtomicU64,
     pub ingest_limit: Arc<tokio::sync::Semaphore>,
     pub watcher: Mutex<Option<crate::files::Watcher>>,
+    _lock: std::fs::File,
 }
 
 pub fn now() -> i64 {
@@ -89,15 +90,36 @@ fn load_key(path: &Path) -> Result<SecretKey> {
     Ok(sk)
 }
 
+#[cfg(unix)]
+fn lock(path: &Path) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let f = std::fs::File::create(path)?;
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        bail!("foto is already running with this data folder");
+    }
+    Ok(f)
+}
+
+#[cfg(not(unix))]
+fn lock(path: &Path) -> Result<std::fs::File> {
+    Ok(std::fs::File::create(path)?)
+}
+
 pub fn parse_hash(s: &str) -> Result<Hash> {
     model::hash_from(s).ok_or_else(|| anyhow!("bad hash {s}"))
 }
 
 impl Core {
-    pub async fn start(cfg: Config, platform: Arc<dyn Platform>) -> Result<Arc<Core>> {
-        let dir = PathBuf::from(&cfg.data_dir);
-        std::fs::create_dir_all(&dir)?;
+    pub async fn start(mut cfg: Config, platform: Arc<dyn Platform>) -> Result<Arc<Core>> {
+        std::fs::create_dir_all(&cfg.data_dir)?;
         std::fs::create_dir_all(&cfg.library_dir)?;
+        let canonical = |p: &str| -> Result<String> {
+            Ok(Path::new(p).canonicalize()?.to_string_lossy().into_owned())
+        };
+        cfg.data_dir = canonical(&cfg.data_dir)?;
+        cfg.library_dir = canonical(&cfg.library_dir)?;
+        let dir = PathBuf::from(&cfg.data_dir);
+        let lock = lock(&dir.join("lock"))?;
         let secret = load_key(&dir.join("endpoint-secret"))?;
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret)
@@ -157,6 +179,7 @@ impl Core {
                     .unwrap_or(4),
             )),
             watcher: Mutex::new(None),
+            _lock: lock,
         });
         let mut list = core.docs.list().await?;
         let mut found = Vec::new();
@@ -450,6 +473,9 @@ impl Core {
             return Ok(());
         }
         for (lib, _) in libs {
+            if self.ix().library_name(&lib).is_none() {
+                continue;
+            }
             let dir = self.library_dir(&lib);
             std::fs::create_dir_all(&dir)?;
             let dir = dir.canonicalize()?.to_string_lossy().into_owned();
@@ -579,6 +605,8 @@ impl Core {
             (Key::Meta, Some(v)) => {
                 if let Some(m) = model::decode::<Meta>(v) {
                     self.ix().set_library(lib, Some(&m.name))?;
+                    self.ensure_library_roots().await?;
+                    self.wake.notify_one();
                 }
             }
             (Key::Asset(h), Some(v)) => {

@@ -689,4 +689,25 @@ mod tests {
         assert_eq!(ix.timeline("L", Filter::All).unwrap().len(), 3);
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    #[test]
+    #[ignore = "perf: cargo test -p foto-core --release -- --ignored --nocapture"]
+    fn timeline_100k() {
+        let dir = std::env::temp_dir().join(format!("foto-100k-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ix = Index::open(&dir.join("i.db")).unwrap();
+        let t = std::time::Instant::now();
+        ix.db.execute_batch("BEGIN").unwrap();
+        for i in 0..100_000u32 {
+            ix.put_asset("L", &Hash::new(i.to_le_bytes()), &asset(i as i64))
+                .unwrap();
+        }
+        ix.db.execute_batch("COMMIT").unwrap();
+        let insert = t.elapsed();
+        let t = std::time::Instant::now();
+        let n = ix.timeline("L", Filter::All).unwrap().len();
+        println!("insert 100k: {insert:?}, timeline query: {:?}", t.elapsed());
+        assert_eq!(n, 100_000);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -174,13 +174,23 @@ fn sync_delete_restore_edit_rename() {
     assert_eq!(a.count(Filter::All), 3, "offline root must not delete");
     std::fs::rename(&moved, &src).unwrap();
 
+    let received = b
+        .library_files()
+        .into_iter()
+        .find(|p| !p.to_string_lossy().contains(".foto-trash"))
+        .unwrap();
+    std::fs::remove_file(&received).unwrap();
+    wait("delete in received folder propagates", || {
+        a.count(Filter::All) == 2
+    });
+
     b.foto.shutdown();
     drop(b);
     photo(&src.join("new.png"), 7);
     a.foto.scan_now().unwrap();
-    wait("a imports new", || a.count(Filter::All) == 4);
+    wait("a imports new", || a.count(Filter::All) == 3);
     let b = Node::open(&base, "b", true);
-    wait("b catches up after restart", || b.count(Filter::All) == 4);
+    wait("b catches up after restart", || b.count(Filter::All) == 3);
     let _ = std::fs::remove_dir_all(base);
 }
 

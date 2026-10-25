@@ -53,6 +53,34 @@ pub struct Config {
     pub originals_all: bool,
 }
 
+impl Config {
+    pub fn desktop(platform: &str) -> Config {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let data = std::env::var("FOTO_HOME").unwrap_or_else(|_| match platform {
+            "macos" => format!("{home}/Library/Application Support/foto"),
+            _ => std::env::var("XDG_DATA_HOME")
+                .map(|d| format!("{d}/foto"))
+                .unwrap_or_else(|_| format!("{home}/.local/share/foto")),
+        });
+        let pictures =
+            std::env::var("FOTO_PICTURES").unwrap_or_else(|_| format!("{home}/Pictures/foto"));
+        let device_name = std::process::Command::new("hostname")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().trim_end_matches(".local").to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| platform.to_string());
+        Config {
+            data_dir: data,
+            library_dir: pictures,
+            device_name,
+            platform: platform.to_string(),
+            originals_all: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct LibraryInfo {
     pub id: String,
