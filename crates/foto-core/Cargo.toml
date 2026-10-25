@@ -1,0 +1,31 @@
+[package]
+name = "foto-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+iroh = "1.4"
+iroh-blobs = "0.103"
+iroh-docs = "0.101"
+iroh-gossip = "0.101"
+iroh-mdns-address-lookup = "0.6"
+futures-lite = "2"
+n0-future = "0.3"
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+nom-exif = "3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
+notify-debouncer-full = "0.7"
+trash = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+libc = "0.2"
+uniffi = "0.32"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+tracing-subscriber.workspace = true
