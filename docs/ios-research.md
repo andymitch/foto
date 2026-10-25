@@ -57,9 +57,24 @@ Expected experience: close to Immich and Ente, except that photos taken while th
 from the desktop only move once both are online and iOS gives foto runtime. iroh relays handle
 "not on the same LAN".
 
-## Build constraint
+## Build constraint: getting the iOS SDK without the App Store
 
-There's no Apple ID on the dev machine, so there's no local Xcode, Simulator or on-device
-install (free provisioning also needs an Apple ID). The iOS app is **built and unit-tested in
-GitHub Actions** (macOS runners ship Xcode and need no account for unsigned and Simulator
-builds). Installing on an iPhone has to wait until an Apple ID is available.
+Every route to the current iOS SDK needs an **Apple ID** (a free one is enough). The App Store
+is not required.
+
+| Route | Apple ID? | Notes |
+|-------|-----------|-------|
+| Mac App Store | yes (App Store sign-in) | Blocked on this machine |
+| developer.apple.com/download `.xip` | yes (browser sign-in, free account) | `download.developer.apple.com` returns 302 to `/unauthorized/` without the `ADCDownloadAuth` cookie (checked) |
+| `xcodes` CLI | yes (Apple ID login) | Wraps the same download. `xcodes install --path X.xip` installs a .xip from anywhere |
+| `xtool` (SwiftPM-based Xcode replacement) | yes | Still needs Xcode on macOS, or `Xcode.xip` on Linux, for the SDK. Its "password" login works with any free Apple ID, including a throwaway one |
+| `theos/sdks` patched SDKs | no | Stub SDKs up to iOS 16.5, no Simulator, missing iOS 17+/26 APIs. Not usable for a SwiftUI app |
+| GitHub Actions macOS runners | no | Xcode preinstalled. Unsigned device builds, Simulator builds and tests work |
+| Installing on an iPhone | yes | Even free provisioning (7-day profiles via Xcode or xtool) needs an Apple ID |
+
+Plan:
+- **Now:** build and test iOS in GitHub Actions only.
+- **If any Apple ID becomes available** (a throwaway one is fine and doesn't need the App
+  Store): download the `.xip` in a browser and install it with `xcodes install --path`. That
+  gives local Xcode, the Simulator, and xtool/Xcode on-device installs with 7-day free
+  provisioning.
