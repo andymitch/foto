@@ -20,7 +20,7 @@ over Iroh, with no cloud storage, accounts or servers to run.
 | 6 | `sqlx` + SQLite as the database | sqlx's async and compile-time macros add a lot for an embedded single-user DB | `rusqlite` (bundled) as a **derived local index** for timeline queries. It can be rebuilt from the doc replica, so it doesn't need migrations to keep data safe |
 | 7 | `embed-resource` to bundle assets | That crate compiles Windows `.rc` resources. It doesn't embed assets | `include_bytes!` / `rust-embed`. `gpui-kit-assets` already ships icons and fonts |
 | 8 | Pair via QR code (desktop) | Desktops usually can't scan a QR code | Pairing ticket offered as **copyable text and a QR code**. QR becomes useful once a mobile shell exists |
-| 9 | Not specified: where originals live | A copy-in store doubles disk use for 50 GB+ libraries | Import **by reference** (iroh-blobs `ImportMode::TryReference`) for the local device's photos. Received photos go into the blob store and can be exported to a folder on demand. See open question 1 |
+| 9 | Not specified: where originals live | A copy-in store doubles disk use for 50 GB+ libraries | Every original is a plain file in a folder you can see, and the blob store only *references* it. See "Storage" below |
 | 10 | `image` 0.25 for thumbnails | Can't read HEIC or RAW, and full decodes of 100K photos are slow | MVP supports JPEG/PNG/WebP/GIF/TIFF. Use the embedded EXIF preview when there is one, otherwise decode and resize with `fast_image_resize`, on a bounded blocking pool. HEIC comes later via `libheif-rs` or the platform's image APIs |
 | 11 | Not specified: deletes | Without tombstones, a deleted photo comes back on the next sync | A delete writes a tombstone entry to the doc. The blob is garbage collected once no live entry references it |
 | 12 | Peers fetch originals before anything else | Browsing a new peer's library would wait on gigabytes | Thumbnails sync first (small blobs), originals afterwards in the background, so the timeline fills in quickly |
@@ -32,6 +32,69 @@ Async integration: GPUI has its own executor and iroh needs tokio. The core owns
 on its own threads and exposes a handle. The UI sends commands and gets events back over channels,
 so the UI never touches tokio directly.
 
+## Decisions
+
+| Topic | Decision |
+|-------|----------|
+| Storage | Visible library folder, with no second copy of any file (see "Storage") |
+| Videos | Imported and synced alongside photos |
+| Libraries | Core supports N libraries from day one. The UI starts with one default library and shows a switcher once there are two |
+| Import | Watched folders: live file events, plus a full rescan at startup |
+
+## Storage
+
+The blob store (`<data-dir>/blobs`) holds only outboards (BLAKE3 tree hashes), metadata and the
+small thumbnail blobs. Originals always stay as ordinary files:
+
+- **Local files in watched folders** are imported with `ImportMode::TryReference`. The store
+  points at the file where it already is.
+- **Files received from a peer** download into the store first, so transfers are verified and can
+  resume. Then they are exported with `ExportMode::TryReference` into the **library folder**
+  (default `~/Pictures/foto`). In iroh-blobs 0.103 that export is a `rename` of the store's file
+  followed by an external reference, so nothing is copied. I checked this in
+  `store/fs.rs::export_file`.
+- The store's data dir must be on the same volume as the library folder so the rename stays
+  cheap. Across volumes, iroh-blobs falls back to copying and then deletes its own copy, so disk
+  use is still 1x once the move finishes.
+- iroh-blobs GC never deletes externally referenced files (`meta.rs`: `DataLocation::External`
+  is skipped on delete). That means blob GC can't destroy user files. Deleting user files is
+  always an explicit foto action.
+- The library folder is itself a watched folder, so photos you drop into it are imported.
+
+Risk: if a referenced file is edited in place, the store would serve bytes that don't match the
+hash. Receivers verify with BLAKE3/bao and reject them, so nothing is corrupted. The watcher
+catches the change, treats it as an edit and drops the old reference.
+
+## Data model
+
+One iroh-docs namespace per library. Each device signs with its own author key.
+
+| Key | Value |
+|-----|-------|
+| `a/<blake3>` | Asset: `{ kind: photo\|video, taken_at, tz_offset, mime, w, h, duration?, size, name, rel_dir, thumb_s, thumb_l, added_by, added_at, favorite? }` |
+| `x/<blake3>` | Tombstone: `{ deleted_at, by }` |
+| `d/<endpoint-id>` | Device: `{ name, last_seen }` |
+| `meta` | Library name |
+
+- Assets are keyed by content hash, so the same bytes in two folders or on two devices are one
+  asset.
+- Local paths are **not** synced. Each device maps hash to its own local paths in its rusqlite
+  index. A rename or move inside a watched folder only updates the local index and never
+  re-transfers anything.
+- The local rusqlite index holds the timeline (`taken_at`, dims, kind, thumb hashes, local paths,
+  original present yes/no, tombstoned yes/no). It is rebuilt from the replica plus a folder scan,
+  so it is never the source of truth.
+
+## Watching
+
+- The `notify` crate (FSEvents/inotify/ReadDirectoryChangesW) watches each folder, with events
+  debounced.
+- On startup each watched folder gets a full rescan. Files whose `(path, size, mtime)` matches the
+  index are skipped. Only new or changed files get hashed.
+- A watched root that is missing (unmounted drive, offline share) is marked *offline*, and its
+  files are **never** treated as deleted.
+- Hashing, EXIF and thumbnail work runs on a bounded blocking pool with progress events to the UI.
+
 ## Architecture
 
 ```
@@ -39,71 +102,46 @@ foto/
 ├── Cargo.toml              workspace
 ├── crates/foto-core/       no UI. Library, import, thumbs, sync, index
 │   ├── node.rs             iroh endpoint + router (blobs, docs, gossip), mDNS, key persistence
-│   ├── library.rs          doc replica: photo entries, tombstones, pairing tickets
-│   ├── import.rs           folder walk, hash, EXIF, thumbnail jobs
-│   ├── thumbs.rs           decode/resize, sizes S (grid ~256px) and L (lightbox ~2048px)
-│   ├── index.rs            rusqlite timeline index, rebuilt from doc events
-│   └── sync.rs             blob fetch queue (thumbs, then originals), per-peer status
+│   ├── library.rs          replica: assets, tombstones, devices, tickets. N libraries
+│   ├── watch.rs            notify + startup rescan, offline-root detection
+│   ├── import.rs           hash, metadata, thumbnail jobs
+│   ├── media.rs            decode backends: image crate, HEIC, video poster frames
+│   ├── index.rs            rusqlite timeline + local path map
+│   └── sync.rs             fetch queue (thumbs, then originals), export to library folder, per-peer status
 └── crates/foto-desktop/    GPUI + gpui-kit shell
-    ├── timeline (virtualized grid, uniform_list), lightbox, import dialog, devices/pairing panel
-    └── bounded texture LRU for thumbnails (keeps idle memory low)
+    ├── timeline (virtualized grid, month headers), lightbox, devices/pairing, folders, settings
+    └── bounded texture LRU for thumbnails
 ```
 
-### Data model (doc entries)
-
-- Key `p/<blake3-of-original>` → value: small postcard/JSON record
-  `{ taken_at, mime, w, h, size, name, thumb_s, thumb_l, added_by, added_at }`.
-  Using the content hash as the key dedups across devices for free.
-- Key `t/<hash>` → tombstone (`deleted_at`, `by`).
-- Key `d/<endpoint-id>` → device record (name, last seen). Per-peer status comes from this plus
-  live sync events.
-
-Each device's blob store holds the originals (by reference for local imports) plus the S/L
-thumbnail blobs. The rusqlite index stores `(hash, taken_at, w, h, thumb_s, has_original)` so the
-grid can page and seek by date without touching the doc.
-
-### Pairing
-
-Device A creates the library, which is an iroh-docs namespace, and shows a write-capable
-`DocTicket` as text and as a QR code. Device B joins with it. After that both devices reconnect
-on their own: over LAN via mDNS, over the internet via n0 discovery and relays. Anyone holding the
-ticket gets full access, and the UI says so.
+The core supports `--data-dir` / `FOTO_HOME`, so two instances can run on one machine. Two-node
+sync tests also run in-process, like Vellum's suite.
 
 ## Milestones
 
-Each milestone ends with something that works and a commit/PR.
+Each milestone ends with something that works and a PR.
 
-- **M0 Scaffold.** Workspace, CI (fmt, clippy `-D warnings`, test on macOS and Linux), release
-  profile. Empty GPUI window opens. Measure binary size and cold start.
-- **M1 Local library.** Import a folder: walk, BLAKE3 hash, EXIF date (falling back to mtime),
-  S/L thumbnails, doc entries, index. Headless CLI subcommand (`foto import <dir>`) so the core
-  can be tested without the UI. Target: 1K photos imported, re-import is a no-op.
-- **M2 Timeline UI.** Virtualized grid grouped by month, lightbox with L thumb (original on
-  demand), import dialog with progress. Target: 60 fps scroll on 10K+ items, bounded memory.
-- **M3 Pairing + sync.** Ticket share/join, mDNS, thumbs-first fetch queue, resume after restart,
-  devices panel with per-peer state (online, entries behind, bytes pending). Target: two machines
-  on LAN converge, and a sync killed halfway resumes.
-- **M4 Deletes + hardening.** Tombstones, blob GC, stress test with 100K synthetic entries,
-  50 GB LAN transfer benchmark, crash-free soak.
-- **M5 Packaging.** cargo-packager (.dmg/.app, .deb/AppImage, NSIS), GitHub Releases workflow.
-
-Later: HEIC/RAW, video playback, mobile shells, selective sync.
+- **M0 Scaffold.** Workspace, CI (fmt, clippy `-D warnings`, tests), release profile, empty GPUI
+  window. Measure binary size and cold start.
+- **M1 Core library.** Watched folders, rescan, hashing, metadata, thumbnails, replica, index.
+  Headless `foto` CLI (`watch add`, `scan`, `ls`). Target: 1K photos plus videos indexed, rescan
+  is a no-op.
+- **M2 Timeline UI.** Virtualized grid, lightbox, video playback hand-off, folders panel, live
+  progress. Target: 60 fps on 10K+ items with bounded memory.
+- **M3 Pairing + sync.** Tickets (text and QR), mDNS, thumbs-first fetch, export to library
+  folder, resume, devices panel. Target: two machines converge, and a sync killed halfway resumes.
+- **M4 Deletes, edits, hardening.** Tombstones, trash, edit handling, 100K synthetic stress test,
+  50 GB LAN benchmark, soak test.
+- **M5 Packaging.** cargo-packager, GitHub Releases.
 
 ## Success metrics (from the note, kept)
 
 - Import 1000+ photos locally
 - 60 fps scrolling
 - Pair two devices (ticket/QR)
-- 50 GB in under 2 h on gigabit LAN (only about 56 Mbit/s is needed, so there is plenty of margin)
+- 50 GB in under 2 h on gigabit LAN (about 56 Mbit/s needed)
 - No crashes during a stress test
 - Cold start under 200 ms, idle memory under 150 MB, 100K-photo libraries
 
-## Open questions
+## Open questions (round 2)
 
-1. **Storage of synced originals.** Keep them only in foto's blob store (simplest), or also
-   mirror them to a visible folder such as `~/Pictures/foto/`? Mirroring roughly doubles disk use
-   unless hardlinks or reflinks are used.
-2. **Videos in MVP.** Import and sync videos as opaque blobs, with a poster-frame thumbnail
-   later? Or photos only?
-3. **One library or several?** The plan assumes one library per device set.
-4. **Watch folders.** Re-scan import folders automatically, or import only when asked (MVP)?
+See the conversation log. Answers get folded into "Decisions" above.
