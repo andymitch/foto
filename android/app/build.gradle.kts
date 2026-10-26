@@ -12,8 +12,8 @@ android {
         applicationId = "com.andymitch.foto"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (findProperty("fotoVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("fotoVersion") as String?) ?: "0.0.0-dev"
     }
 
     buildTypes {

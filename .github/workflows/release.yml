@@ -1,42 +1,119 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        type: choice
+        options: [major, hotfix, beta]
+        default: major
 
 permissions:
   contents: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prev: ${{ steps.v.outputs.prev }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: v
+        env:
+          TYPE: ${{ inputs.release_type }}
+        run: |
+          set -euo pipefail
+          TYPE="${TYPE:-major}"
+          LATEST_MAJOR=$(git tag -l 'v*' | { grep -E '^v[0-9]+$' || true; } | sed 's/^v//' | sort -n | tail -1)
+          PRERELEASE=false
+          if [ "$TYPE" = "hotfix" ]; then
+            if [ -z "$LATEST_MAJOR" ]; then echo "No major release to hotfix"; exit 1; fi
+            N=$LATEST_MAJOR
+            X=$(git tag -l "v${N}.*" | { grep -E "^v${N}\.[0-9]+$" || true; } | sed "s/^v${N}\.//" | sort -n | tail -1)
+            X=$(( ${X:-0} + 1 ))
+            VERSION="${N}.${X}.0"; TAG="v${N}.${X}"
+          elif [ "$TYPE" = "beta" ]; then
+            N=$(( ${LATEST_MAJOR:-0} + 1 ))
+            B=$(git tag -l "v${N}-beta.*" | { grep -E "^v${N}-beta\.[0-9]+$" || true; } | sed "s/^v${N}-beta\.//" | sort -n | tail -1)
+            B=$(( ${B:-0} + 1 ))
+            VERSION="${N}.0.0-beta.${B}"; TAG="v${N}-beta.${B}"
+            PRERELEASE=true
+          else
+            N=$(( ${LATEST_MAJOR:-0} + 1 ))
+            VERSION="${N}.0.0"; TAG="v${N}"
+          fi
+          PREV=$(git tag -l 'v*' | { grep -E '^v[0-9]+(\.[0-9]+)?$' || true; } | sort -V | tail -1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Next release: $TAG (version $VERSION), prev ${PREV:-<none>}, prerelease=$PRERELEASE"
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
+          PRERELEASE: ${{ steps.v.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          FLAGS=(--draft --target "${{ github.sha }}" --title "foto $TAG" --notes "Building…")
+          if [ "$PRERELEASE" = "true" ]; then FLAGS+=(--prerelease); fi
+          gh release create "$TAG" "${FLAGS[@]}" --repo "${{ github.repository }}"
+
   desktop:
+    needs: prepare
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            formats: -f app -f dmg
+          - os: ubuntu-22.04
+            formats: -f deb -f appimage
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
-            libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libssl-dev pkg-config
+            libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libssl-dev pkg-config libfuse2
+      - name: Stamp version
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+        run: sed -i.bak "s/^version = \".*\"/version = \"$V\"/" Cargo.toml && rm Cargo.toml.bak
       - run: cargo install cargo-packager --locked
-      - run: cargo packager -p foto-desktop --release
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            target/packages/*.dmg
-            target/packages/*.deb
-            target/packages/*.AppImage
+      - run: cargo packager -p foto-desktop --release ${{ matrix.formats }}
+      - name: Upload with stable names
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd target/packages
+          for f in *.dmg *.deb *.AppImage; do
+            [ -e "$f" ] || continue
+            case "$f" in
+              *.dmg) cp "$f" foto_aarch64.dmg; up=foto_aarch64.dmg ;;
+              *.deb) cp "$f" foto_amd64.deb; up=foto_amd64.deb ;;
+              *.AppImage) cp "$f" foto_x86_64.AppImage; up=foto_x86_64.AppImage ;;
+            esac
+            gh release upload "$TAG" "$up" --clobber --repo "${{ github.repository }}"
+          done
 
   android:
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android, x86_64-linux-android
@@ -46,10 +123,45 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: cargo install cargo-ndk --locked
-      - name: Build APK
+      - name: Build release APK
         working-directory: android
-        run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./gradlew assembleRelease --console=plain
-      - run: cp android/app/build/outputs/apk/release/app-release.apk foto-${{ github.ref_name }}.apk
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: foto-${{ github.ref_name }}.apk
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+        run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./gradlew assembleRelease --console=plain -PfotoVersion="$V" -PfotoVersionCode=${{ github.run_number }}
+      - name: Sign APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "$KS_B64" | base64 -d > release.jks
+          "$BT/zipalign" -f -p 4 android/app/build/outputs/apk/release/app-release.apk foto-release.apk
+          "$BT/apksigner" sign --ks release.jks --ks-pass "pass:$KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASS" foto-release.apk
+          "$BT/apksigner" verify foto-release.apk
+          rm -f release.jks
+      - name: Upload APK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" foto-release.apk --clobber --repo "${{ github.repository }}"
+
+  notes:
+    needs: [prepare, desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Publish with categorized notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PREV: ${{ needs.prepare.outputs.prev }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          HEAD: ${{ github.sha }}
+        run: |
+          node scripts/release-notes.mjs > notes.md
+          cat notes.md
+          gh release edit "$TAG" --repo "$REPO" --notes-file notes.md --draft=false --prerelease="$PRERELEASE"

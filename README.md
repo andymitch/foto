@@ -13,6 +13,19 @@ servers. Works on macOS, Linux and Android.
 
 Design and decisions: [docs/PLAN.md](docs/PLAN.md). iOS is planned: [#2](https://github.com/andymitch/foto/issues/2).
 
+## Releases
+
+Cut from GitHub Actions (**Actions → Release → Run workflow**), the same way as Vellum and Pulse:
+
+- `major` makes the next `vN`.
+- `hotfix` makes `vN.X` off the latest major.
+- `beta` makes `vN-beta.X`, a pre-release of the next major.
+
+The workflow creates a draft and attaches `foto_aarch64.dmg`, `foto_amd64.deb`,
+`foto_x86_64.AppImage` and `foto-release.apk` (signed with the release keystore in the
+repo secrets). It publishes once every build succeeds. Notes are grouped by the label of the
+issue each change closes, so label issues and write `Closes #N`.
+
 ## Layout
 
 | Path | What |
