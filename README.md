@@ -66,3 +66,7 @@ Devices find each other on the LAN (mDNS) or anywhere through n0's public relays
 | Core startup (open node + library) | ~50 ms |
 | Desktop idle memory (62-item library, grid shown) | 115 MB footprint |
 | Timeline query, 100K assets | 49 ms (`cargo test -p foto-core --release -- --ignored`) |
+
+## License
+
+MIT. See [LICENSE](LICENSE).
