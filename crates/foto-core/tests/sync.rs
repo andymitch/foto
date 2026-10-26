@@ -112,7 +112,11 @@ fn sync_delete_restore_edit_rename() {
             .thumbnail(lib.clone(), first.clone(), false)
             .is_some()
     );
-    wait("b gets originals", || b.library_files().len() == 3);
+    wait("b gets originals", || {
+        let s = b.foto.status();
+        assert!(s.paused.is_none(), "originals paused: {:?}", s.paused);
+        b.library_files().len() == 3
+    });
     let devices = a.foto.devices(lib.clone());
     wait("devices known", || a.foto.devices(lib.clone()).len() == 2);
     assert!(devices.iter().any(|d| d.this_device));
