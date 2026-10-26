@@ -1,5 +1,7 @@
 # foto: implementation spec
 
+> Status: built. See "Implementation notes" at the end for where the build differs from this spec.
+
 Source: Vellum note "🖼️ foto.md" (personal vault). That note was used as a reference, not a spec.
 This document is the spec for a single build pass, split into commits.
 
@@ -336,3 +338,32 @@ Not final. `foto` is used for crate names, the binary, `<library>` (`~/Pictures/
 - 100K-asset library stays responsive (stress test)
 - No crashes in the integration suite or a soak run
 - Binary size, cold start and idle memory measured against 15–25 MB, 200 ms and 150 MB (soft goals)
+
+## Implementation notes
+
+What the build does differently from the spec above, and why.
+
+- **UniFFI types live in `foto-core`.** `foto-ffi` is a thin cdylib/staticlib that re-exports
+  the core's scaffolding, so the types aren't duplicated in a second crate.
+- **The core API is synchronous.** Every method blocks on the core's own tokio runtime. GPUI
+  calls it from background tasks, and Kotlin from `Dispatchers.IO`. This avoids async
+  bridging in both shells.
+- **No fetch-queue table.** The "persistent queue" is a query: assets missing thumbnails or
+  originals in the index, plus an in-memory retry backoff. Nothing extra needs persisting to
+  survive a restart.
+- **Android background work.** There is no separate service. A WorkManager job (every 15 min,
+  plus an expedited one when the app leaves the foreground mid-transfer) calls
+  `setForeground` with a `dataSync` notification while transfers are running.
+- **iOS staging/eviction is not built.** It is deferred with the iOS app
+  ([#2](https://github.com/andymitch/foto/issues/2)). `Platform` and the holdings (`h/`)
+  entries it needs exist already.
+- **Disk-full gate.** It uses real `statvfs` with 2 GB of headroom. It has no fake-`free_space`
+  test.
+- **Desktop tray is macOS only.** On Linux, closing the last window quits.
+- **Desktop binary is 31.8 MB**, above the 15–25 MB soft goal (iroh + GPUI + bundled SQLite).
+  The `.dmg` is 15 MB.
+- **Verified by hand.**
+  - macOS app: HEIC import via ImageIO, viewer, devices/QR.
+  - Pixel 9a emulator: joined a desktop library through the relay, previews and on-demand
+    originals arrived, and a Camera photo synced back to the desktop.
+  - Linux desktop is only built in CI.

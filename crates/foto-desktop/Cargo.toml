@@ -20,3 +20,18 @@ objc2-foundation = "0.3"
 objc2-av-foundation = { version = "0.3", features = ["objc2-core-graphics", "objc2-core-media"] }
 objc2-core-media = "0.3"
 tray-icon = "0.21"
+
+[package.metadata.packager]
+product-name = "foto"
+identifier = "com.andymitch.foto"
+description = "Local-first photo library that syncs between your devices"
+icons = ["../../assets/icon.png"]
+out-dir = "../../target/packages"
+before-packaging-command = "cargo build --release -p foto-desktop"
+binaries = [{ path = "foto-desktop", main = true }]
+
+[package.metadata.packager.macos]
+minimum-system-version = "13.0"
+
+[package.metadata.packager.deb]
+depends = ["libxkbcommon0", "libxkbcommon-x11-0", "libwayland-client0", "libvulkan1"]
