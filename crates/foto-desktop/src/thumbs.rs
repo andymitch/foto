@@ -12,7 +12,7 @@ pub struct Thumbs {
 
 pub fn decode(bytes: &[u8]) -> Option<RenderImage> {
     let mut rgba = image::load_from_memory(bytes).ok()?.into_rgba8();
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     Some(RenderImage::new(vec![image::Frame::new(rgba)]))
