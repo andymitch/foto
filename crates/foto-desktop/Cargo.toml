@@ -1,0 +1,22 @@
+[package]
+name = "foto-desktop"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+foto-core.workspace = true
+gpui-kit = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+qrcode = { version = "0.14", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-image-io = "0.3"
+objc2-foundation = "0.3"
+objc2-av-foundation = { version = "0.3", features = ["objc2-core-graphics", "objc2-core-media"] }
+objc2-core-media = "0.3"
+tray-icon = "0.21"
