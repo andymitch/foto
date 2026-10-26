@@ -42,9 +42,7 @@ jobs:
       - run: cargo install cargo-ndk --locked
       - name: Build APK
         working-directory: android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-        run: ./gradlew assembleDebug --console=plain
+        run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./gradlew assembleDebug --console=plain
 
   macos:
     if: github.event_name != 'pull_request'

@@ -46,9 +46,7 @@ jobs:
       - run: cargo install cargo-ndk --locked
       - name: Build APK
         working-directory: android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-        run: ./gradlew assembleRelease --console=plain
+        run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./gradlew assembleRelease --console=plain
       - run: cp android/app/build/outputs/apk/release/app-release.apk foto-${{ github.ref_name }}.apk
       - uses: softprops/action-gh-release@v2
         with:

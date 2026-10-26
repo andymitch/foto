@@ -12,7 +12,9 @@ pub extern "system" fn Java_com_andymitch_foto_Native_initAndroidContext(
 ) {
     ANDROID_INIT.call_once(|| {
         let Ok(vm) = env.get_java_vm() else { return };
-        let Ok(global) = env.new_global_ref(&context) else { return };
+        let Ok(global) = env.new_global_ref(&context) else {
+            return;
+        };
         unsafe {
             ndk_context::initialize_android_context(
                 vm.get_java_vm_pointer().cast(),
