@@ -90,6 +90,16 @@ fn sibling(path: &Path, exts: &[&str]) -> Option<PathBuf> {
         .find(|p| p != path && p.is_file())
 }
 
+#[cfg(not(target_os = "android"))]
+fn os_trash(path: &str) -> Result<()> {
+    Ok(trash::delete(path)?)
+}
+
+#[cfg(target_os = "android")]
+fn os_trash(path: &str) -> Result<()> {
+    Ok(std::fs::remove_file(path)?)
+}
+
 pub fn date_dir(taken_at: i64) -> PathBuf {
     let d = chrono::DateTime::from_timestamp(taken_at, 0).unwrap_or_default();
     PathBuf::from(d.format("%Y").to_string()).join(d.format("%m").to_string())
@@ -533,7 +543,7 @@ impl Core {
         let cutoff = now() - TRASH_DAYS * 86400;
         let old = self.ix().trashed_before(cutoff)?;
         for (path, trash_path) in old {
-            if Path::new(&trash_path).exists() && trash::delete(&trash_path).is_err() {
+            if Path::new(&trash_path).exists() && os_trash(&trash_path).is_err() {
                 let _ = std::fs::remove_file(&trash_path);
             }
             self.ix().remove_trashed(&path)?;

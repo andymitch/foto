@@ -2464,6 +2464,8 @@ name = "foto-ffi"
 version = "0.1.0"
 dependencies = [
  "foto-core",
+ "jni 0.21.1",
+ "ndk-context",
  "uniffi",
 ]
 

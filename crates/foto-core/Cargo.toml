@@ -21,10 +21,12 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 nom-exif = "3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
 notify-debouncer-full = "0.7"
-trash = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 libc = "0.2"
 uniffi = "0.32"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+trash = "5"
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }

@@ -1,0 +1,5 @@
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.** { *; }
+-keep class com.andymitch.foto.core.** { *; }
+-keep class com.andymitch.foto.Native { *; }
+-dontwarn java.awt.**
