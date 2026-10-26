@@ -126,7 +126,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             tray(cx);
             #[cfg(not(target_os = "macos"))]
-            cx.on_window_closed(|cx| {
+            cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
                 }
